@@ -52,7 +52,7 @@
     // 监控网络加载情况属性
     [self.player.currentItem addObserver:self forKeyPath:@"loadedTimeRanges" options:NSKeyValueObservingOptionNew context:nil];
     
-    AVPlayerItem *playerItem=self.player.currentItem;
+//    AVPlayerItem *playerItem=self.player.currentItem;
     UISlider *slider = self.slider;
     //这里设置每秒执行一次
     [self.player addPeriodicTimeObserverForInterval:CMTimeMake(1.0, 1.0) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
@@ -139,7 +139,11 @@
 }
 
 - (void)sliderPress {
-    [self.player playImmediatelyAtRate:self.slider.value / self.slider.maximumValue];
+    [self.player pause];
+    CMTime time = CMTimeMakeWithSeconds(self.slider.value, self.player.currentTime.timescale);
+    [self.player seekToTime:time completionHandler:^(BOOL finished) {
+        [self.player play];
+    }];
 }
 
 - (void)dealloc {
@@ -152,7 +156,7 @@
 
 - (AVPlayer *)player {
     if (!_player) {
-        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"https://f.us.sinaimg.cn/0001MIz0lx07gR4xBih201040202WuPu0k03.mp4?label=mp4_720p&template=28&Expires=1514277310&ssig=wUtRAHrMVn&KID=unistore,video"]];
+        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"http://fus.cdn.krcom.cn/00407FcNlx07gMMOtn0k0104020jqJbr0k0e.mp4?label=mp4_1080p&template=27&Expires=1514296788&ssig=OsJ7qmRTh5&KID=unistore,video"]];
         _player = [AVPlayer playerWithPlayerItem:playerItem];
     }
     return _player;
