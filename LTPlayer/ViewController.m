@@ -7,6 +7,7 @@
 //
 
 #import "ViewController.h"
+#import "LTPlayerView.h"
 
 @interface ViewController ()
 
@@ -17,6 +18,8 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view, typically from a nib.
+    LTPlayerView *view = [[LTPlayerView alloc] initWithFrame:CGRectMake(0, 64, [UIScreen mainScreen].bounds.size.width, 200)];
+    [self.view addSubview:view];
 }
 
 
