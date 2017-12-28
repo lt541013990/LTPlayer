@@ -9,6 +9,14 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 
+typedef enum :NSInteger {
+    ltVideoMoveDirectionNone,
+    ltVideoMoveDirectionUp,
+    ltVideoMoveDirectionDown,
+    ltVideoMoveDirectionRight,
+    ltVideoMoveDirectionLeft
+} VideoMoveDirection;
+
 @interface LTPlayerView : UIView
 
 @end

@@ -8,6 +8,8 @@
 
 #import "LTPlayerView.h"
 
+CGFloat const gestureMinimumTranslation = 0.0;
+
 @interface LTPlayerView ()
 
 @property (nonatomic, strong) AVPlayer *player;
@@ -18,6 +20,7 @@
 @property (nonatomic, strong) UISlider *slider;
 
 @property (nonatomic, assign) BOOL readyToPlay;
+@property (nonatomic, assign) VideoMoveDirection direction;
 
 @end
 
@@ -52,7 +55,6 @@
     // 监控网络加载情况属性
     [self.player.currentItem addObserver:self forKeyPath:@"loadedTimeRanges" options:NSKeyValueObservingOptionNew context:nil];
     
-//    AVPlayerItem *playerItem=self.player.currentItem;
     UISlider *slider = self.slider;
     //这里设置每秒执行一次
     [self.player addPeriodicTimeObserverForInterval:CMTimeMake(1.0, 1.0) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
@@ -62,6 +64,14 @@
             [slider setValue:(current) animated:YES];
         }
     }];
+    
+    UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(playOrPause)];
+    tapGesture.numberOfTapsRequired = 2;
+    [self addGestureRecognizer:tapGesture];
+    
+    UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panAction:)];
+    [self addGestureRecognizer:panGesture];
+    
 }
 
 - (void)layoutSubviews {
@@ -70,7 +80,46 @@
     self.playOrPauseButton.frame = CGRectMake(5, self.frame.size.height - 30, 30, 30);
     
     self.progressView.frame = CGRectMake(40, self.frame.size.height - 16, self.frame.size.width - 80, 1);
-    self.slider.frame = CGRectMake(39, self.frame.size.height - 20, self.frame.size.width - 80, 10);
+    self.slider.frame = CGRectMake(38, self.frame.size.height - 20, self.frame.size.width - 80 + 2, 10);
+}
+
+- (VideoMoveDirection)determineCameraDirectionIfNeeded:(CGPoint)translation {
+
+    if (self.direction != ltVideoMoveDirectionNone)
+        return self.direction;
+    
+    // determine if horizontal swipe only if you meet some minimum velocity
+    if (fabs(translation.x) > gestureMinimumTranslation) {
+        BOOL gestureHorizontal = NO;
+        if (translation.y ==0.0)
+            gestureHorizontal = YES;
+        else
+            gestureHorizontal = (fabs(translation.x / translation.y) >5.0);
+        
+        if (gestureHorizontal) {
+            if (translation.x >0.0)
+                return ltVideoMoveDirectionRight;
+            else
+                return ltVideoMoveDirectionLeft;
+        }
+    }
+    // determine if vertical swipe only if you meet some minimum velocity
+    else if (fabs(translation.y) > gestureMinimumTranslation) {
+        BOOL gestureVertical = NO;
+        if (translation.x ==0.0)
+            gestureVertical = YES;
+        else
+            gestureVertical = (fabs(translation.y / translation.x) >5.0);
+        
+        if (gestureVertical) {
+            if (translation.y >0.0)
+                return ltVideoMoveDirectionDown;
+            else
+                return ltVideoMoveDirectionUp;
+        }
+    }
+    
+    return self.direction;
 }
 
 #pragma mark - notification
@@ -117,7 +166,6 @@
         NSTimeInterval totalBuffer = startSeconds + durationSeconds;//缓冲总长度
         NSTimeInterval totalDuration = CMTimeGetSeconds([playerItem duration]);
         [self.progressView setProgress:totalBuffer/totalDuration animated:YES];
-        NSLog(@"当前已经缓存 %f", totalBuffer);
     }
 }
 
@@ -125,26 +173,76 @@
 
 - (void)playOrPause {
     if (self.player.rate == 0) { // 暂停
-        if (self.readyToPlay) {
-            [self.playOrPauseButton setTitle:@"pause" forState:UIControlStateNormal];
-            [self.player play];
-        } else {
-            NSLog(@"加载中.....");
-        }
-        
+        [self play];
     } else if (self.player.rate == 1) { // 播放
-        [self.playOrPauseButton setTitle:@"play" forState:UIControlStateNormal];
-        [self.player pause];
+        [self pause];
     }
 }
 
-- (void)sliderPress {
-    [self.player pause];
-    CMTime time = CMTimeMakeWithSeconds(self.slider.value, self.player.currentTime.timescale);
-    [self.player seekToTime:time completionHandler:^(BOOL finished) {
+- (void)panAction:(UIPanGestureRecognizer *)pan {
+    CGPoint translationPoint = [pan translationInView:pan.view];
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        self.direction = ltVideoMoveDirectionNone;
+    } else if (pan.state == UIGestureRecognizerStateChanged) {
+        if (self.direction == ltVideoMoveDirectionNone) {
+            self.direction = [self determineCameraDirectionIfNeeded:translationPoint];
+        }
+        
+        switch (self.direction) {
+            case ltVideoMoveDirectionRight:
+            case ltVideoMoveDirectionLeft:
+            {   // 进度调整
+                [self pause];
+                break;
+            }
+            case ltVideoMoveDirectionUp:
+            case ltVideoMoveDirectionDown:
+                
+                break;
+            default:
+                break;
+        }
+    } else if (pan.state == UIGestureRecognizerStateEnded) {
+        if (self.direction == ltVideoMoveDirectionRight || self.direction == ltVideoMoveDirectionLeft) {
+            double distance = translationPoint.x;
+            double nowTime = CMTimeGetSeconds(self.player.currentItem.currentTime);
+            NSLog(@"%f",distance);
+            CMTime time = CMTimeMake(nowTime + distance * 0.3, NSEC_PER_SEC);
+            [self.player seekToTime:time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {}];
+            [self play];
+        }
+    }
+}
+
+- (void)play {
+    if (self.readyToPlay) {
+        [self.playOrPauseButton setTitle:@"pause" forState:UIControlStateNormal];
         [self.player play];
+    } else {
+        NSLog(@"加载中.....");
+    }
+}
+
+- (void)pause {
+    [self.playOrPauseButton setTitle:@"play" forState:UIControlStateNormal];
+    [self.player pause];
+}
+
+// 正在拖动
+- (void)sliderDraging {
+    [self pause];
+    CMTime time = CMTimeMakeWithSeconds(self.slider.value, NSEC_PER_SEC);
+    [self.player seekToTime:time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
+
     }];
 }
+
+// 拖动结束
+- (void)sliderDragEnd {
+    [self play];
+}
+
+
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -156,7 +254,7 @@
 
 - (AVPlayer *)player {
     if (!_player) {
-        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"http://fus.cdn.krcom.cn/00407FcNlx07gMMOtn0k0104020jqJbr0k0e.mp4?label=mp4_1080p&template=27&Expires=1514296788&ssig=OsJ7qmRTh5&KID=unistore,video"]];
+        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"https://gslb.miaopai.com/stream/Wc6k9F3DE9KtS05SgnLeaQU-ifuqIpInvyZUGg__.mp4?yx=&refer=weibo_app&Expires=1514459398&ssig=pmfkvagrSS&KID=unistore,video"]];
         _player = [AVPlayer playerWithPlayerItem:playerItem];
     }
     return _player;
@@ -189,8 +287,9 @@
         _slider.minimumValue = 0;
         _slider.minimumTrackTintColor = [UIColor blueColor];
         _slider.maximumTrackTintColor = [UIColor clearColor];
-        _slider.thumbTintColor = [UIColor whiteColor];
-        [_slider addTarget:self action:@selector(sliderPress) forControlEvents:UIControlEventValueChanged];
+        _slider.thumbTintColor = [UIColor redColor];
+        [_slider addTarget:self action:@selector(sliderDraging) forControlEvents:UIControlEventValueChanged];
+        [_slider addTarget:self action:@selector(sliderDragEnd) forControlEvents:UIControlEventTouchUpInside];
     }
     return _slider;
 }
