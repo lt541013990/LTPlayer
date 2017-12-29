@@ -8,7 +8,7 @@
 
 #import "LTPlayerView.h"
 
-CGFloat const gestureMinimumTranslation = 0.0;
+CGFloat const gestureMinimumTranslation = 10.0;
 
 @interface LTPlayerView ()
 
@@ -21,6 +21,7 @@ CGFloat const gestureMinimumTranslation = 0.0;
 
 @property (nonatomic, assign) BOOL readyToPlay;
 @property (nonatomic, assign) VideoMoveDirection direction;
+@property (nonatomic, assign) BOOL isChangingBrightness;    // YES表明手势是改变亮度  NO表明手势是改变声音
 
 @end
 
@@ -87,39 +88,59 @@ CGFloat const gestureMinimumTranslation = 0.0;
 
     if (self.direction != ltVideoMoveDirectionNone)
         return self.direction;
+//    NSLog(@"x = %f y = %f",translation.x , translation.y);
+//  //   determine if horizontal swipe only if you meet some minimum velocity
+//    if (fabs(translation.x) > gestureMinimumTranslation) {
+//        BOOL gestureHorizontal = NO;
+//        if (translation.y ==0.0)
+//            gestureHorizontal = YES;
+//        else
+//            gestureHorizontal = (fabs(translation.x / translation.y) >5.0);
+//
+//        if (gestureHorizontal) {
+//            if (translation.x >0.0)
+//                return ltVideoMoveDirectionRight;
+//            else
+//                return ltVideoMoveDirectionLeft;
+//        }
+//    }
+//    // determine if vertical swipe only if you meet some minimum velocity
+//    else if (fabs(translation.y) > gestureMinimumTranslation) {
+//        BOOL gestureVertical = NO;
+//        if (translation.x ==0.0)
+//            gestureVertical = YES;
+//        else
+//            gestureVertical = (fabs(translation.y / translation.x) >5.0);
+//
+//        if (gestureVertical) {
+//            if (translation.y >0.0)
+//                return ltVideoMoveDirectionDown;
+//            else
+//                return ltVideoMoveDirectionUp;
+//        }
+//    }
     
-    // determine if horizontal swipe only if you meet some minimum velocity
-    if (fabs(translation.x) > gestureMinimumTranslation) {
-        BOOL gestureHorizontal = NO;
-        if (translation.y ==0.0)
-            gestureHorizontal = YES;
-        else
-            gestureHorizontal = (fabs(translation.x / translation.y) >5.0);
-        
-        if (gestureHorizontal) {
-            if (translation.x >0.0)
-                return ltVideoMoveDirectionRight;
-            else
-                return ltVideoMoveDirectionLeft;
-        }
-    }
-    // determine if vertical swipe only if you meet some minimum velocity
-    else if (fabs(translation.y) > gestureMinimumTranslation) {
-        BOOL gestureVertical = NO;
-        if (translation.x ==0.0)
-            gestureVertical = YES;
-        else
-            gestureVertical = (fabs(translation.y / translation.x) >5.0);
-        
-        if (gestureVertical) {
-            if (translation.y >0.0)
-                return ltVideoMoveDirectionDown;
-            else
-                return ltVideoMoveDirectionUp;
-        }
+    VideoMoveDirection direction = ltVideoMoveDirectionNone;
+    // 如果滑动距离太小 则略过
+    if (MAX(fabs(translation.x), fabs(translation.y)) < gestureMinimumTranslation) {
+        return ltVideoMoveDirectionNone;
     }
     
-    return self.direction;
+    if (fabs(translation.x / translation.y) >3.0) { // 横向滑动
+        if (translation.x >0.0)
+            direction = ltVideoMoveDirectionRight;
+        else
+            direction = ltVideoMoveDirectionLeft;
+    } else if (fabs(translation.y / translation.x) >3.0) {
+        if (translation.y >0.0)
+            direction = ltVideoMoveDirectionDown;
+        else
+            direction = ltVideoMoveDirectionUp;
+    } else {
+        direction = ltVideoMoveDirectionNone;
+    }
+    
+    return direction;
 }
 
 #pragma mark - notification
@@ -180,11 +201,16 @@ CGFloat const gestureMinimumTranslation = 0.0;
 }
 
 - (void)panAction:(UIPanGestureRecognizer *)pan {
+    CGPoint locationPoint = [pan locationInView:pan.view];
     CGPoint translationPoint = [pan translationInView:pan.view];
     if (pan.state == UIGestureRecognizerStateBegan) {
+        NSLog(@"1");
         self.direction = ltVideoMoveDirectionNone;
+        self.isChangingBrightness = locationPoint.x < self.frame.size.width / 2;
     } else if (pan.state == UIGestureRecognizerStateChanged) {
+        
         if (self.direction == ltVideoMoveDirectionNone) {
+            NSLog(@"2");
             self.direction = [self determineCameraDirectionIfNeeded:translationPoint];
         }
         
@@ -193,12 +219,42 @@ CGFloat const gestureMinimumTranslation = 0.0;
             case ltVideoMoveDirectionLeft:
             {   // 进度调整
                 [self pause];
+                double distance = translationPoint.x;
+                double nowTime = CMTimeGetSeconds(self.player.currentItem.currentTime);
+                [self.slider setValue:nowTime + distance * 0.3];
                 break;
             }
             case ltVideoMoveDirectionUp:
             case ltVideoMoveDirectionDown:
-                
+            {
+                double distance = translationPoint.y;
+                if (self.isChangingBrightness) { // 调节亮度
+                    double brightnessChange = distance / self.frame.size.height * -1;
+                    double brightness = [UIScreen mainScreen].brightness;
+                    brightness += brightnessChange;
+                    if (brightness > 1) {
+                        brightness = 1;
+                    } else if (brightness < 0) {
+                        brightness = 0;
+                    }
+                    NSLog(@"亮度 :%f",brightness);
+                    [[UIScreen mainScreen] setBrightness:brightness];
+                    
+                } else { // 调节声音
+                    double voiceChange = distance / self.frame.size.height * -1;
+                    double volume = [self.player volume];
+                    volume += voiceChange;
+                    if (volume > 1) {
+                        volume = 1;
+                    } else if (volume < 0) {
+                        volume = 0;
+                    }
+                    NSLog(@"声音 :%f",volume);
+                    [self.player setVolume:volume];
+                }
+                [pan setTranslation:CGPointZero inView:pan.view];
                 break;
+            }
             default:
                 break;
         }
@@ -207,9 +263,11 @@ CGFloat const gestureMinimumTranslation = 0.0;
             double distance = translationPoint.x;
             double nowTime = CMTimeGetSeconds(self.player.currentItem.currentTime);
             NSLog(@"%f",distance);
-            CMTime time = CMTimeMake(nowTime + distance * 0.3, NSEC_PER_SEC);
-            [self.player seekToTime:time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {}];
-            [self play];
+            CMTime time = CMTimeMakeWithSeconds(nowTime + distance * 0.3, NSEC_PER_SEC);
+            [self.slider setValue:nowTime + distance * 0.3];
+            [self.player seekToTime:time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
+                [self play];
+            }];
         }
     }
 }
@@ -254,7 +312,8 @@ CGFloat const gestureMinimumTranslation = 0.0;
 
 - (AVPlayer *)player {
     if (!_player) {
-        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"https://gslb.miaopai.com/stream/Wc6k9F3DE9KtS05SgnLeaQU-ifuqIpInvyZUGg__.mp4?yx=&refer=weibo_app&Expires=1514459398&ssig=pmfkvagrSS&KID=unistore,video"]];
+        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:@"https://f.us.sinaimg.cn/00472LDZlx07eq6qgSYM010f0105pBcj0k04.mp4?label=mp4_720p&template=v2_template_empty&Expires=1514537112&ssig=GzW9%2FfacpL&KID=unistore,video"]];
+        
         _player = [AVPlayer playerWithPlayerItem:playerItem];
     }
     return _player;
@@ -287,7 +346,7 @@ CGFloat const gestureMinimumTranslation = 0.0;
         _slider.minimumValue = 0;
         _slider.minimumTrackTintColor = [UIColor blueColor];
         _slider.maximumTrackTintColor = [UIColor clearColor];
-        _slider.thumbTintColor = [UIColor redColor];
+        [_slider setThumbImage:[UIImage imageNamed:@"thumb_middle"] forState:UIControlStateNormal];
         [_slider addTarget:self action:@selector(sliderDraging) forControlEvents:UIControlEventValueChanged];
         [_slider addTarget:self action:@selector(sliderDragEnd) forControlEvents:UIControlEventTouchUpInside];
     }
